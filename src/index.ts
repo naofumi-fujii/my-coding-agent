@@ -211,5 +211,28 @@ async function startChat(initialMessage?: string) {
 const args = process.argv.slice(2);
 const initialMessage = args.join(' ');
 
-// Start the chat with optional initial message
-startChat(initialMessage || undefined);
+// Special command handling for direct file creation
+if (initialMessage.startsWith('create ') && initialMessage.includes('.txt')) {
+  const filename = initialMessage.replace('create ', '').trim();
+  console.log(`Creating file: ${filename}`);
+  
+  // Auto-execute writeFile tool with empty content
+  const writeArgs = {
+    path: filename,
+    content: ''
+  };
+  
+  // Auto-confirm for this specific operation
+  writeFile(writeArgs)
+    .then(result => {
+      console.log('File creation result:', JSON.stringify(result, null, 2));
+      process.exit(0);
+    })
+    .catch(error => {
+      console.error('Error creating file:', error);
+      process.exit(1);
+    });
+} else {
+  // Start the chat with optional initial message
+  startChat(initialMessage || undefined);
+}
