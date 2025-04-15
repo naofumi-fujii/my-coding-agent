@@ -6,7 +6,8 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "build": "tsc",
-    "dev": "tsx watch src/index.ts"
+    "dev": "tsx watch src/index.ts",
+    "chat": "node -e \"require('child_process').spawn('tsx', ['src/index.ts', ...process.argv.slice(2)], {stdio: 'inherit'})\""
   },
   "keywords": [
     "ai",
