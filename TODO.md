@@ -1,0 +1,2 @@
+- https://azukiazusa.dev/blog/build-your-own-coding-ai-agent/
+- 上記の記事を参考にコーディングエージェントを実装してください
