@@ -15,7 +15,7 @@ if (!apiKey) {
 }
 
 const genAI = new GoogleGenerativeAI(apiKey);
-const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
 
 // Create readline interface for user input
 const rl = readline.createInterface({
@@ -111,89 +111,94 @@ async function executeTool(toolName: string, args: any) {
 }
 
 // Main chat loop
-async function startChat() {
+async function startChat(initialMessage?: string) {
   console.log('Coding Assistant initialized. Type "exit" to quit.');
   
   let chatHistory = [
     { role: 'system', parts: [{ text: systemPrompt }] }
   ];
   
-  const askQuestion = () => {
-    rl.question('\nYou: ', async (userInput) => {
-      if (userInput.toLowerCase() === 'exit') {
-        console.log('Goodbye!');
-        rl.close();
-        return;
+  const processUserInput = async (userInput: string) => {
+    if (userInput.toLowerCase() === 'exit') {
+      console.log('Goodbye!');
+      rl.close();
+      return false;
+    }
+    
+    // Add user message to chat history
+    chatHistory.push({ role: 'user', parts: [{ text: userInput }] });
+    
+    try {
+      // Send the conversation to the model
+      const result = await model.generateContentStream({
+        contents: chatHistory,
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 8192,
+        }
+      });
+      
+      let aiResponse = '';
+      let toolCalls: any[] = [];
+      
+      // Process the response stream
+      console.log('\nAssistant: ');
+      for await (const chunk of result.stream) {
+        const content = chunk.text();
+        if (content) {
+          process.stdout.write(content);
+          aiResponse += content;
+        }
+        
+        // Check for function calls
+        const chunkFunctionCalls = chunk.functionCalls && chunk.functionCalls();
+        if (chunkFunctionCalls && chunkFunctionCalls.length > 0) {
+          toolCalls = chunkFunctionCalls;
+        }
+      }
+      console.log('\n');
+      
+      // Add AI response to chat history
+      chatHistory.push({ role: 'model', parts: [{ text: aiResponse }] });
+      
+      // Handle tool calls
+      if (toolCalls.length > 0) {
+        console.log('\nExecuting tool calls...');
+        
+        for (const toolCall of toolCalls) {
+          const toolName = toolCall.name;
+          const args = JSON.parse(toolCall.args);
+          
+          console.log(`\nExecuting tool: ${toolName}`);
+          const result = await executeTool(toolName, args);
+          console.log('Tool result:', JSON.stringify(result, null, 2));
+          
+          // Add tool result to chat history
+          chatHistory.push({ 
+            role: 'function', 
+            parts: [{ text: JSON.stringify(result) }]
+          });
+        }
       }
       
-      // Add user message to chat history
-      chatHistory.push({ role: 'user', parts: [{ text: userInput }] });
-      
-      try {
-        // Send the conversation to the model
-        const result = await model.generateContentStream({
-          contents: chatHistory,
-          generationConfig: {
-            temperature: 0.2,
-            maxOutputTokens: 8192,
-          },
-          tools: tools.map(tool => ({
-            functionDeclarations: [{
-              name: tool.name,
-              description: tool.description,
-              parameters: tool.schema.shape,
-            }]
-          })),
-        });
-        
-        let aiResponse = '';
-        let toolCalls: any[] = [];
-        
-        // Process the response stream
-        console.log('\nAssistant: ');
-        for await (const chunk of result.stream) {
-          const content = chunk.text();
-          if (content) {
-            process.stdout.write(content);
-            aiResponse += content;
-          }
-          
-          // Check for function calls
-          const functionCalls = chunk.functionCalls();
-          if (functionCalls.length > 0) {
-            toolCalls = functionCalls;
-          }
-        }
-        console.log('\n');
-        
-        // Add AI response to chat history
-        chatHistory.push({ role: 'model', parts: [{ text: aiResponse }] });
-        
-        // Handle tool calls
-        if (toolCalls.length > 0) {
-          console.log('\nExecuting tool calls...');
-          
-          for (const toolCall of toolCalls) {
-            const toolName = toolCall.name;
-            const args = JSON.parse(toolCall.args);
-            
-            console.log(`\nExecuting tool: ${toolName}`);
-            const result = await executeTool(toolName, args);
-            console.log('Tool result:', JSON.stringify(result, null, 2));
-            
-            // Add tool result to chat history
-            chatHistory.push({ 
-              role: 'tool', 
-              parts: [{ text: JSON.stringify(result) }],
-              toolMetadata: { toolName }
-            });
-          }
-        }
-        
-        // Continue the conversation
-        askQuestion();
-      } catch (error) {
-        console.error('Error:', error);
+      return true;
+    } catch (error) {
+      console.error('Error:', error);
+      return true;
+    }
+  };
+  
+  // If initial message is provided, process it first
+  if (initialMessage) {
+    console.log(`\nYou: ${initialMessage}`);
+    const shouldContinue = await processUserInput(initialMessage);
+    if (!shouldContinue) return;
+  }
+  
+  const askQuestion = () => {
+    rl.question('\nYou: ', async (userInput) => {
+      const shouldContinue = await processUserInput(userInput);
+      if (shouldContinue) {
         askQuestion();
       }
     });
@@ -202,5 +207,9 @@ async function startChat() {
   askQuestion();
 }
 
-// Start the chat
-startChat();
+// Parse command line arguments for initial message
+const args = process.argv.slice(2);
+const initialMessage = args.join(' ');
+
+// Start the chat with optional initial message
+startChat(initialMessage || undefined);
